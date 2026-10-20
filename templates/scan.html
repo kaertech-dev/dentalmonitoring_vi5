@@ -1,0 +1,414 @@
+<!-- scan.html -->
+{% extends "base.html" %}
+{% block title %}Visual Inspection 5 Scan{% endblock %}
+{% block body %}
+<div class="app-wrap">
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <span class="logo-icon">📦</span>
+      <span class="header-title">Visual Inspection 5 Scanning</span>
+    </div>
+    <div class="header-right">
+      <span class="operator-badge">👤 {{ operator_en }}</span>
+      <select id="sel-shift" class="sel-shift">
+        <option value="A">A</option>
+        <option value="B">B</option>
+      </select>
+      <button class="btn-ghost" id="btn-logout">Logout</button>
+    </div>
+  </header>
+
+  <!-- Tray Counter -->
+  <div class="tray-section">
+    <div class="tray-counter-wrap">
+      <div class="tray-counter-label">Units in Tray</div>
+      <div class="tray-counter-display">
+        <span id="count-current">0</span>
+        <span class="tray-sep">/</span>
+        <span class="tray-total">{{ tray_limit }}</span>
+      </div>
+      <div class="tray-bar-wrap">
+        <div id="tray-bar" class="tray-bar" style="width:0%"></div>
+      </div>
+      <div id="tray-status" class="tray-status-label"></div>
+    </div>
+    <button class="btn-reset" id="btn-reset">🔄 New Tray</button>
+  </div>
+
+  <!-- Laser-marking customer SN -->
+  <div class="scan-section">
+    <div class="scan-row">
+      <input id="scan-laser" class="scan-input" type="text"
+             placeholder="Scan laser-marking customer SN…" autocomplete="off" autofocus />
+      <button id="btn-scan-laser" class="btn-primary btn-scan">CHECK LASER-MARKING SN</button>
+    </div>
+    <div id="scan-msg-laser" class="scan-msg hidden"></div>
+  </div>
+
+  <!-- Labelling customer SN -->
+  <div class="scan-section">
+    <div class="scan-row">
+      <input id="scan-labelling" class="scan-input" type="text"
+             placeholder="Scan labelling customer SN…" autocomplete="off" disabled />
+      <button id="btn-scan-labelling" class="btn-primary btn-scan" disabled>CHECK LABELLING SN</button>
+    </div>
+    <div id="scan-msg-labelling" class="scan-msg hidden"></div>
+  </div>
+
+  <!-- Unit serial number -->
+  <div class="scan-section">
+    <div class="scan-row">
+      <input id="scan-serial" class="scan-input" type="text"
+             placeholder="Scan the unit serial number…" autocomplete="off" disabled />
+      <button id="btn-scan-serial" class="btn-primary btn-scan" disabled>VERIFY SERIAL</button>
+    </div>
+    <div id="scan-msg-serial" class="scan-msg hidden"></div>
+    <!-- Pass / Fail buttons, shown after serial is verified -->
+    <div id="decision-row" class="scan-row hidden">
+      <button id="btn-pass" class="btn-primary btn-pass">✅ PASS</button>
+      <button id="btn-fail" class="btn-primary btn-fail">❌ FAIL</button>
+    </div>
+
+    <!-- Fail reason input, shown only when FAIL is clicked -->
+    <div id="fail-reason-row" class="scan-row hidden">
+      <input id="fail-reason" class="scan-input" type="text"
+             placeholder="Enter reason for fail…" autocomplete="off" disabled />
+      <button id="btn-submit-fail" class="btn-primary btn-fail">SUBMIT FAIL</button>
+      <button id="btn-cancel-fail" class="btn-ghost">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Log Table -->
+  <div class="log-section">
+    <div class="log-header">
+      <h2>Scan Log</h2>
+      <button class="btn-ghost btn-sm" id="btn-clear-log">Clear Log</button>
+    </div>
+    <div class="table-wrap">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Serial Number</th>
+            <th>PO Number</th>
+            <th>Status</th>
+            <th>Message</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="log-body">
+          <tr id="empty-row"><td colspan="6" class="empty-log">No scans yet. Start scanning above.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const TRAY_LIMIT = {{ tray_limit }};
+  let count = 0;
+  let logRows = [];
+  let verifiedLaserCustomerSn = null;
+  let verifiedLabellingCustomerSn = null;
+  let laserCustomerSerial = null;
+  let verifiedSerial = null;
+  let decisionSubmitting = false;
+
+  const countEl   = document.getElementById("count-current");
+  const trayBar   = document.getElementById("tray-bar");
+  const trayLbl   = document.getElementById("tray-status");
+
+  const scanLaser   = document.getElementById("scan-laser");
+  const scanLabelling = document.getElementById("scan-labelling");
+  const scanSerial  = document.getElementById("scan-serial");
+  const msgLaser    = document.getElementById("scan-msg-laser");
+  const msgLabelling = document.getElementById("scan-msg-labelling");
+  const msgSerial   = document.getElementById("scan-msg-serial");
+  const logBody     = document.getElementById("log-body");
+  const emptyRow    = document.getElementById("empty-row");
+  const shiftSel    = document.getElementById("sel-shift");
+  const btnLaser    = document.getElementById("btn-scan-laser");
+  const btnLabelling = document.getElementById("btn-scan-labelling");
+  const btnSerial   = document.getElementById("btn-scan-serial");
+
+  const decisionRow   = document.getElementById("decision-row");
+  const btnPass        = document.getElementById("btn-pass");
+  const btnFail         = document.getElementById("btn-fail");
+  const failReasonRow  = document.getElementById("fail-reason-row");
+  const failReasonInput = document.getElementById("fail-reason");
+  const btnSubmitFail  = document.getElementById("btn-submit-fail");
+  const btnCancelFail  = document.getElementById("btn-cancel-fail");
+
+  function updateCounter(n) {
+    count = n;
+    countEl.textContent = n;
+    const pct = Math.min((n / TRAY_LIMIT) * 100, 100);
+    trayBar.style.width = pct + "%";
+    trayBar.className = "tray-bar" + (n >= TRAY_LIMIT ? " full" : n >= TRAY_LIMIT * 0.8 ? " warn" : "");
+    trayLbl.textContent = n >= TRAY_LIMIT ? "✅ Tray Full — Start a New Tray" : "";
+    trayLbl.className = "tray-status-label" + (n >= TRAY_LIMIT ? " full" : "");
+  }
+
+  function showMsg(el, text, type) {
+    el.textContent = text;
+    el.className = "scan-msg " + type;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.className = "scan-msg hidden", 4000);
+  }
+
+  function addLogRow(serial, po, status, message) {
+    emptyRow.style.display = "none";
+    const idx  = logRows.length + 1;
+    const time = new Date().toLocaleTimeString();
+    const tr   = document.createElement("tr");
+    tr.className = "log-row-" + status;
+    const addCell = (value, className = "") => {
+      const td = document.createElement("td");
+      td.className = className;
+      td.textContent = value;
+      tr.appendChild(td);
+      return td;
+    };
+    addCell(String(idx));
+    addCell(serial, "mono");
+    addCell(po || "—", "mono");
+    const statusCell = addCell("");
+    const badge = document.createElement("span");
+    badge.className = "badge badge-" + status;
+    badge.textContent = status.toUpperCase();
+    statusCell.appendChild(badge);
+    addCell(message);
+    addCell(time);
+    logBody.prepend(tr);
+    logRows.push(tr);
+  }
+
+  function resetScanSteps() {
+    verifiedLaserCustomerSn = null;
+    verifiedLabellingCustomerSn = null;
+    laserCustomerSerial = null;
+    verifiedSerial = null;
+    scanLaser.value = "";
+    scanLaser.disabled = false;
+    btnLaser.disabled = false;
+    scanLabelling.value = "";
+    scanLabelling.disabled = true;
+    btnLabelling.disabled = true;
+    scanSerial.value = "";
+    scanSerial.disabled = true;
+    btnSerial.disabled = true;
+    decisionRow.classList.add("hidden");
+    failReasonRow.classList.add("hidden");
+    failReasonInput.disabled = true;
+    failReasonInput.value = "";
+    scanLaser.focus();
+  }
+
+  async function checkCustomerSn(customerSn, station) {
+    const res = await fetch("/api/check-customersn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_sn: customerSn, station })
+    });
+    return res.json();
+  }
+
+  async function doCheckLaser() {
+    const customerSn = scanLaser.value.trim();
+    if (!customerSn) { showMsg(msgLaser, "Please scan the laser-marking customer SN.", "error"); return; }
+
+    btnLaser.disabled = true;
+    try {
+      const data = await checkCustomerSn(customerSn, "lasermarking");
+      showMsg(msgLaser, data.message, data.ok ? "success" : "error");
+      if (data.ok) {
+        verifiedLaserCustomerSn = customerSn;
+        laserCustomerSerial = data.serial_num;
+        scanLaser.disabled = true;
+        scanLabelling.disabled = false;
+        btnLabelling.disabled = false;
+        scanLabelling.focus();
+      }
+    } catch {
+      showMsg(msgLaser, "Unable to check the laser-marking customer SN. Please retry.", "error");
+    } finally {
+      btnLaser.disabled = verifiedLaserCustomerSn !== null;
+    }
+  }
+
+  async function doCheckLabelling() {
+    const customerSn = scanLabelling.value.trim();
+    if (!customerSn) { showMsg(msgLabelling, "Please scan the labelling customer SN.", "error"); return; }
+    if (customerSn !== verifiedLaserCustomerSn) {
+      showMsg(msgLabelling, "The labelling customer SN does not match the laser-marking customer SN.", "error");
+      scanLabelling.value = "";
+      scanLabelling.focus();
+      return;
+    }
+
+    btnLabelling.disabled = true;
+    try {
+      const data = await checkCustomerSn(customerSn, "labelling");
+      if (data.ok && data.serial_num !== laserCustomerSerial) {
+        showMsg(msgLabelling, "The laser-marking and labelling customer SNs link to different serial numbers.", "error");
+        scanLabelling.value = "";
+        scanLabelling.focus();
+        return;
+      }
+      showMsg(msgLabelling, data.message, data.ok ? "success" : "error");
+      if (data.ok) {
+        verifiedLabellingCustomerSn = customerSn;
+        scanLabelling.disabled = true;
+        scanSerial.disabled = false;
+        btnSerial.disabled = false;
+        scanSerial.focus();
+      }
+    } catch {
+      showMsg(msgLabelling, "Unable to check the labelling customer SN. Please retry.", "error");
+    } finally {
+      btnLabelling.disabled = verifiedLabellingCustomerSn !== null;
+    }
+  }
+
+  async function doVerifySerial() {
+    if (count >= TRAY_LIMIT) {
+      showMsg(msgSerial, "Tray is full (50/50). Click 'New Tray' to reset.", "error");
+      return;
+    }
+    if (!verifiedLaserCustomerSn || !verifiedLabellingCustomerSn) {
+      showMsg(msgSerial, "Verify both customer SNs first.", "error");
+      return;
+    }
+    const serial = scanSerial.value.trim();
+    if (!serial) { showMsg(msgSerial, "Please enter a serial number.", "error"); return; }
+
+    btnSerial.disabled = true;
+
+    try {
+      const res = await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_sn: verifiedLaserCustomerSn, serial_num: serial })
+      });
+      const data = await res.json();
+
+      showMsg(msgSerial, data.message, data.ok ? "success" : "error");
+      if (data.ok) {
+        verifiedSerial = serial;
+        scanSerial.disabled = true;
+        decisionRow.classList.remove("hidden");
+      } else {
+        scanSerial.value = "";
+        scanSerial.focus();
+      }
+    } catch {
+      showMsg(msgSerial, "Unable to verify the serial number. Please retry.", "error");
+      scanSerial.value = "";
+      scanSerial.focus();
+    } finally {
+      btnSerial.disabled = verifiedSerial !== null;
+    }
+  }
+
+  async function submitDecision(decision, remarks = "") {
+    if (decisionSubmitting) return;
+    decisionSubmitting = true;
+    btnPass.disabled = true;
+    btnFail.disabled = true;
+    btnSubmitFail.disabled = true;
+    btnCancelFail.disabled = true;
+    failReasonInput.disabled = true;
+
+    try {
+      const res  = await fetch("/api/scan-decision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_sn: verifiedLaserCustomerSn,
+          serial_num: verifiedSerial,
+          decision,
+          shift: shiftSel.value,
+          remarks,
+        })
+      });
+      const data = await res.json();
+
+      const statusMap = { ok: "ok", already_vi5: "warn", fail: "fail", not_found: "fail", mismatch: "fail" };
+      const uiStatus  = statusMap[data.status] || "fail";
+
+      showMsg(msgSerial, data.message, data.ok ? "success" : "error");
+
+      if (data.ok) {
+        addLogRow(data.serial_num, data.unit?.po_num, uiStatus, data.message);
+        if (data.decision === "pass") updateCounter(count + 1);
+        resetScanSteps();
+      } else {
+        // Validation failed on re-check; surface it and keep the decision available.
+        addLogRow(verifiedSerial, data.unit?.po_num, uiStatus, data.message);
+      }
+    } finally {
+      decisionSubmitting = false;
+      btnPass.disabled = false;
+      btnFail.disabled = false;
+      btnSubmitFail.disabled = false;
+      btnCancelFail.disabled = false;
+      failReasonInput.disabled = failReasonRow.classList.contains("hidden");
+    }
+  }
+
+  btnLaser.addEventListener("click", doCheckLaser);
+  scanLaser.addEventListener("keydown", e => { if (e.key === "Enter") doCheckLaser(); });
+
+  btnLabelling.addEventListener("click", doCheckLabelling);
+  scanLabelling.addEventListener("keydown", e => { if (e.key === "Enter") doCheckLabelling(); });
+
+  btnSerial.addEventListener("click", doVerifySerial);
+  scanSerial.addEventListener("keydown", e => { if (e.key === "Enter") doVerifySerial(); });
+
+  btnPass.addEventListener("click", () => submitDecision("pass"));
+
+  btnFail.addEventListener("click", () => {
+    if (decisionSubmitting) return;
+    decisionRow.classList.add("hidden");
+    failReasonRow.classList.remove("hidden");
+    failReasonInput.disabled = false;
+    failReasonInput.focus();
+  });
+
+  btnCancelFail.addEventListener("click", () => {
+    if (decisionSubmitting) return;
+    failReasonRow.classList.add("hidden");
+    failReasonInput.disabled = true;
+    failReasonInput.value = "";
+    decisionRow.classList.remove("hidden");
+  });
+
+  btnSubmitFail.addEventListener("click", () => {
+    const reason = failReasonInput.value.trim();
+    if (!reason) { showMsg(msgSerial, "Please enter a fail reason.", "error"); return; }
+    submitDecision("fail", reason);
+  });
+  failReasonInput.addEventListener("keydown", e => { if (e.key === "Enter") btnSubmitFail.click(); });
+
+  document.getElementById("btn-reset").addEventListener("click", () => {
+    if (!confirm("Start a new tray? The counter will reset to 0.")) return;
+    updateCounter(0);
+    resetScanSteps();
+    showMsg(msgLaser, "New tray started.", "success");
+  });
+
+  document.getElementById("btn-clear-log").addEventListener("click", () => {
+    logRows.forEach(r => r.remove());
+    logRows = [];
+    emptyRow.style.display = "";
+  });
+
+  document.getElementById("btn-logout").addEventListener("click", async () => {
+    await fetch("/api/logout", { method: "POST" });
+    window.location.href = "/login";
+  });
+</script>
+{% endblock %}
