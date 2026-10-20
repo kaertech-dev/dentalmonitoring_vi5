@@ -208,7 +208,7 @@
   }
 
   async function checkCustomerSn(customerSn, station) {
-    const res = await fetch("/api/check-customersn", {
+    const res = await fetch(appUrl("/api/check-customersn"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ customer_sn: customerSn, station })
@@ -288,7 +288,7 @@
     btnSerial.disabled = true;
 
     try {
-      const res = await fetch("/api/scan", {
+      const res = await fetch(appUrl("/api/scan"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customer_sn: verifiedLaserCustomerSn, serial_num: serial })
@@ -323,7 +323,7 @@
     failReasonInput.disabled = true;
 
     try {
-      const res  = await fetch("/api/scan-decision", {
+      const res  = await fetch(appUrl("/api/scan-decision"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -407,8 +407,8 @@
   });
 
   document.getElementById("btn-logout").addEventListener("click", async () => {
-    await fetch("/api/logout", { method: "POST" });
-    window.location.href = "/login";
+    await fetch(appUrl("/api/logout"), { method: "POST" });
+    window.location.href = appUrl("/login");
   });
 </script>
 {% endblock %}

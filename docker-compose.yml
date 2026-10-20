@@ -4,7 +4,7 @@ services:
     image: mainboard_vi5
     container_name: dentalmonitoring_mainboard
     ports:
-      - "5050:5050"
+      - "5058:5058"
     restart: always
     env_file:
       - .env
