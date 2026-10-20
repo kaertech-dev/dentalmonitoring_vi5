@@ -9,6 +9,12 @@ placeholders or required database values blank. The app loads this file
 automatically when started with Python or Docker Compose and exits during
 startup if any required value is missing.
 
+When deployed behind one trusted reverse proxy, the app uses Werkzeug
+`ProxyFix` to honor one value each for the forwarded client address, scheme,
+host, port, and URL prefix. Configure the proxy to overwrite these forwarded
+headers and restrict direct access to the Gunicorn port; otherwise clients
+could supply spoofed forwarded values.
+
 For local development, install dependencies with `pip install -r requirements.txt`
 and start with `python run.py`. To run in Docker, use `docker compose up --build`.
 The container uses Gunicorn and stores timestamps in the `Asia/Manila` timezone.

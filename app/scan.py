@@ -13,7 +13,7 @@ REQUIRED_STATIONS = (
     "assembly5",
     "assembly6",
     "camcalibration",
-    "lasermarking1",
+    "lasermarking",
     "labelling",
 )
 MAX_FAIL_REPETITIONS = 3
@@ -26,7 +26,7 @@ def lookup_unit(serial_num: str):
     """Check b2btag_main for the serial and its station statuses."""
     return query_one(
         """
-        SELECT serial_num, po_num, progtest, soldering, vi1, assembly1, vi4, assembly2, assembly3, assembly4, assembly5, assembly6, camcalibration, lasermarking1, labelling
+        SELECT serial_num, po_num, progtest, soldering, vi1, assembly1, vi4, assembly2, assembly3, assembly4, assembly5, assembly6, camcalibration, lasermarking, labelling
         FROM dentalmonitoring.mainboard_main
         WHERE serial_num = %s
         LIMIT 1
