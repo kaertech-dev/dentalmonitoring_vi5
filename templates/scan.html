@@ -41,7 +41,7 @@
   <div class="scan-section">
     <div class="scan-row">
       <input id="scan-laser" class="scan-input" type="text"
-             placeholder="Scan laser-marking customer SN…" autocomplete="off" autofocus />
+             placeholder="Scan laser-marking Data Matrix…" autocomplete="off" autofocus />
       <button id="btn-scan-laser" class="btn-primary btn-scan">CHECK LASER-MARKING SN</button>
     </div>
     <div id="scan-msg-laser" class="scan-msg hidden"></div>
@@ -51,7 +51,7 @@
   <div class="scan-section">
     <div class="scan-row">
       <input id="scan-labelling" class="scan-input" type="text"
-             placeholder="Scan labelling customer SN…" autocomplete="off" disabled />
+             placeholder="Scan labelling Data Matrix…" autocomplete="off" disabled />
       <button id="btn-scan-labelling" class="btn-primary btn-scan" disabled>CHECK LABELLING SN</button>
     </div>
     <div id="scan-msg-labelling" class="scan-msg hidden"></div>
@@ -113,6 +113,8 @@
   let logRows = [];
   let verifiedLaserCustomerSn = null;
   let verifiedLabellingCustomerSn = null;
+  let verifiedLaserProductSn = null;
+  let verifiedLabellingProductSn = null;
   let laserCustomerSerial = null;
   let verifiedSerial = null;
   let decisionSubmitting = false;
@@ -189,6 +191,8 @@
   function resetScanSteps() {
     verifiedLaserCustomerSn = null;
     verifiedLabellingCustomerSn = null;
+    verifiedLaserProductSn = null;
+    verifiedLabellingProductSn = null;
     laserCustomerSerial = null;
     verifiedSerial = null;
     scanLaser.value = "";
@@ -207,11 +211,11 @@
     scanLaser.focus();
   }
 
-  async function checkCustomerSn(customerSn, station) {
+  async function checkCustomerSn(scanValue, station) {
     const res = await fetch(appUrl("/api/check-customersn"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_sn: customerSn, station })
+      body: JSON.stringify({ customer_sn: scanValue, station })
     });
     return res.json();
   }
@@ -225,7 +229,8 @@
       const data = await checkCustomerSn(customerSn, "lasermarking");
       showMsg(msgLaser, data.message, data.ok ? "success" : "error");
       if (data.ok) {
-        verifiedLaserCustomerSn = customerSn;
+        verifiedLaserCustomerSn = data.customer_sn;
+        verifiedLaserProductSn = data.product_sn;
         laserCustomerSerial = data.serial_num;
         scanLaser.disabled = true;
         scanLabelling.disabled = false;
@@ -240,18 +245,28 @@
   }
 
   async function doCheckLabelling() {
-    const customerSn = scanLabelling.value.trim();
-    if (!customerSn) { showMsg(msgLabelling, "Please scan the labelling customer SN.", "error"); return; }
-    if (customerSn !== verifiedLaserCustomerSn) {
-      showMsg(msgLabelling, "The labelling customer SN does not match the laser-marking customer SN.", "error");
-      scanLabelling.value = "";
-      scanLabelling.focus();
-      return;
-    }
+    const scanValue = scanLabelling.value.trim();
+    if (!scanValue) { showMsg(msgLabelling, "Please scan the labelling Data Matrix.", "error"); return; }
 
     btnLabelling.disabled = true;
     try {
-      const data = await checkCustomerSn(customerSn, "labelling");
+      const data = await checkCustomerSn(scanValue, "labelling");
+      if (data.ok && data.customer_sn !== verifiedLaserCustomerSn) {
+        showMsg(
+          msgLabelling,
+          `Labelling customer SN '${data.customer_sn}' does not match laser-marking customer SN '${verifiedLaserCustomerSn}'.`,
+          "error"
+        );
+        scanLabelling.value = "";
+        scanLabelling.focus();
+        return;
+      }
+      if (data.ok && data.product_sn !== verifiedLaserProductSn) {
+        showMsg(msgLabelling, "The complete labelling Data Matrix does not match the laser-marking Data Matrix.", "error");
+        scanLabelling.value = "";
+        scanLabelling.focus();
+        return;
+      }
       if (data.ok && data.serial_num !== laserCustomerSerial) {
         showMsg(msgLabelling, "The laser-marking and labelling customer SNs link to different serial numbers.", "error");
         scanLabelling.value = "";
@@ -260,7 +275,8 @@
       }
       showMsg(msgLabelling, data.message, data.ok ? "success" : "error");
       if (data.ok) {
-        verifiedLabellingCustomerSn = customerSn;
+        verifiedLabellingCustomerSn = data.customer_sn;
+        verifiedLabellingProductSn = data.product_sn;
         scanLabelling.disabled = true;
         scanSerial.disabled = false;
         btnSerial.disabled = false;
@@ -291,7 +307,12 @@
       const res = await fetch(appUrl("/api/scan"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer_sn: verifiedLaserCustomerSn, serial_num: serial })
+        body: JSON.stringify({
+          customer_sn: verifiedLaserCustomerSn,
+          serial_num: serial,
+          laser_product_sn: verifiedLaserProductSn,
+          labelling_product_sn: verifiedLabellingProductSn,
+        })
       });
       const data = await res.json();
 
@@ -329,6 +350,8 @@
         body: JSON.stringify({
           customer_sn: verifiedLaserCustomerSn,
           serial_num: verifiedSerial,
+          laser_product_sn: verifiedLaserProductSn,
+          labelling_product_sn: verifiedLabellingProductSn,
           decision,
           shift: shiftSel.value,
           remarks,

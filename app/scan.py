@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from app.db import query_one, query_all, get_conn
 
 REQUIRED_STATIONS = (
@@ -21,6 +22,15 @@ CUSTOMER_SN_STATIONS = {
     "lasermarking": "dentalmonitoring.mainboard_lasermarking",
     "labelling": "dentalmonitoring.mainboard_labelling",
 }
+CUSTOMER_SN_PATTERN = re.compile(r"\(21\)([^()\x1d]*)")
+
+def extract_customer_sn(scan_value: str) -> str | None:
+    """Extract the customer serial from GS1 application identifier 21."""
+    match = CUSTOMER_SN_PATTERN.search(scan_value)
+    if match is None:
+        return None
+    customer_sn = match.group(1).strip()
+    return customer_sn or None
 
 def lookup_unit(serial_num: str):
     """Check b2btag_main for the serial and its station statuses."""
@@ -65,7 +75,7 @@ def verify_customer_sn_matches_serial(customer_sn: str, serial_num: str) -> bool
 def already_vi5(serial_num: str) -> dict | None:
     return query_one(
         """
-        SELECT serial_num, po_num, operator_en, shift, date_time, test_rep, remarks, status
+        SELECT serial_num, po_num, operator_en, shift, date_time, remarks, status
         FROM dentalmonitoring.mainboard_vi5
         WHERE serial_num = %s AND status = 1
         LIMIT 1
@@ -117,6 +127,7 @@ def _already_vi_message(record: dict) -> str:
 
 def record_vi5(
     serial_num: str,
+    product_sn: str,
     po_num: str,
     operator_en: str,
     shift: str,
@@ -168,10 +179,10 @@ def record_vi5(
         cur.execute(
             """
             INSERT INTO dentalmonitoring.mainboard_vi5
-                (serial_num, po_num, operator_en, shift, date_time, test_rep, remarks, status)
-            VALUES (%s, %s, %s, %s, %s, 1, %s, 1)
+                (serial_num, product_sn, po_num, operator_en, shift, date_time, test_rep, remarks, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 1, %s, 1)
             """,
-            (serial_num, po_num, operator_en, shift, datetime.now(), remarks)
+            (serial_num, product_sn, po_num, operator_en, shift, datetime.now(), remarks)
         )
 
         conn.commit()
@@ -182,7 +193,14 @@ def record_vi5(
     finally:
         conn.close()
 
-def record_fail(serial_num: str, po_num: str, operator_en: str, shift: str, reason: str):
+def record_fail(
+    serial_num: str,
+    product_sn: str,
+    po_num: str,
+    operator_en: str,
+    shift: str,
+    reason: str,
+):
     """
     Record a FAIL:
       - Inserts into dentalmonitoring.mainboard_vi5 with serial_num suffixed "_1", "_2", or "_3"
@@ -211,10 +229,19 @@ def record_fail(serial_num: str, po_num: str, operator_en: str, shift: str, reas
         cur.execute(
             """
             INSERT INTO dentalmonitoring.mainboard_vi5
-                (serial_num, po_num, operator_en, shift, date_time, test_rep, remarks, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 0)
+                (serial_num, product_sn, po_num, operator_en, shift, date_time, test_rep, remarks, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
             """,
-            (fail_serial, po_num, operator_en, shift, datetime.now(), repetition, reason)
+            (
+                fail_serial,
+                product_sn,
+                po_num,
+                operator_en,
+                shift,
+                datetime.now(),
+                repetition,
+                reason,
+            )
         )
         conn.commit()
         return repetition
@@ -226,14 +253,22 @@ def record_fail(serial_num: str, po_num: str, operator_en: str, shift: str, reas
 
 def process_customersn_check(customer_sn: str, station: str):
     """
-    Validate one customer SN against its laser-marking or labelling record.
+    Extract AI (21) and validate that customer SN at a scan station.
     """
-    customer_sn = customer_sn.strip()
+    scan_value = customer_sn.strip()
     station = station.strip().lower()
     if station not in CUSTOMER_SN_STATIONS:
         return {
             "status": "fail",
             "message": "Choose either the laser-marking or labelling station.",
+            "ok": False,
+        }
+
+    customer_sn = extract_customer_sn(scan_value)
+    if customer_sn is None:
+        return {
+            "status": "fail",
+            "message": "Invalid Data Matrix: customer serial AI (21) was not found.",
             "ok": False,
         }
 
@@ -251,12 +286,22 @@ def process_customersn_check(customer_sn: str, station: str):
 
     return {
         "status": "ok",
-        "message": f"Customer SN verified at {station}.",
+        "message": (
+            f"Customer SN '{customer_sn}' verified at {station}; "
+            f"station serial is '{record['serial_num']}'."
+        ),
+        "customer_sn": customer_sn,
+        "product_sn": scan_value,
         "serial_num": record["serial_num"],
         "ok": True,
     }
 
-def validate_scan(customer_sn: str, serial_num: str):
+def validate_scan(
+    customer_sn: str,
+    serial_num: str,
+    laser_product_sn: str,
+    labelling_product_sn: str,
+):
     """
     Validate both customer-SN station records, serial, stations, and VI5 history.
     Does NOT record anything — just tells the UI whether it's OK to
@@ -268,9 +313,25 @@ def validate_scan(customer_sn: str, serial_num: str):
     """
     serial_num = serial_num.strip()
     customer_sn = customer_sn.strip()
+    laser_product_sn = laser_product_sn.strip()
+    labelling_product_sn = labelling_product_sn.strip()
 
-    if not customer_sn:
-        return {"status": "fail", "message": "Customer SN must be verified first.", "unit": None}
+    if not customer_sn or not laser_product_sn or not labelling_product_sn:
+        return {
+            "status": "fail",
+            "message": "Both Data Matrix scans must be verified first.",
+            "unit": None,
+        }
+
+    if (
+        laser_product_sn != labelling_product_sn
+        or extract_customer_sn(laser_product_sn) != customer_sn
+    ):
+        return {
+            "status": "mismatch",
+            "message": "The complete laser-marking and labelling Data Matrix values must match.",
+            "unit": None,
+        }
 
     unit = lookup_unit(serial_num)
     if not unit:
@@ -316,7 +377,16 @@ def validate_scan(customer_sn: str, serial_num: str):
         "unit": unit,
     }
 
-def finalize_scan(customer_sn: str, serial_num: str, operator_en: str, shift: str, decision: str, remarks: str = ""):
+def finalize_scan(
+    customer_sn: str,
+    serial_num: str,
+    laser_product_sn: str,
+    labelling_product_sn: str,
+    operator_en: str,
+    shift: str,
+    decision: str,
+    remarks: str = "",
+):
     """
     Step 4: record the operator's decision.
     Re-runs validate_scan first so a stale/tampered client can't force a write.
@@ -324,12 +394,19 @@ def finalize_scan(customer_sn: str, serial_num: str, operator_en: str, shift: st
     """
     serial_num = serial_num.strip()
     customer_sn = customer_sn.strip()
+    laser_product_sn = laser_product_sn.strip()
+    labelling_product_sn = labelling_product_sn.strip()
     decision = (decision or "").strip().lower()
 
     if decision not in ("pass", "fail"):
         return {"status": "fail", "message": "Invalid decision.", "unit": None}
 
-    check = validate_scan(customer_sn, serial_num)
+    check = validate_scan(
+        customer_sn,
+        serial_num,
+        laser_product_sn,
+        labelling_product_sn,
+    )
     if check["status"] != "ok":
         if decision == "pass" and check["status"] == "already_vi5":
             return {
@@ -348,7 +425,14 @@ def finalize_scan(customer_sn: str, serial_num: str, operator_en: str, shift: st
         reason = remarks.strip()
         if not reason:
             return {"status": "fail", "message": "A fail reason is required.", "unit": unit}
-        repetition = record_fail(serial_num, unit["po_num"], operator_en, shift, reason)
+        repetition = record_fail(
+            serial_num,
+            laser_product_sn,
+            unit["po_num"],
+            operator_en,
+            shift,
+            reason,
+        )
         if repetition is None:
             return {
                 "status": "max_failures",
@@ -363,7 +447,14 @@ def finalize_scan(customer_sn: str, serial_num: str, operator_en: str, shift: st
             "serial_num": f"{serial_num}_{repetition}",
         }
 
-    existing_record = record_vi5(serial_num, unit["po_num"], operator_en, shift, remarks)
+    existing_record = record_vi5(
+        serial_num,
+        laser_product_sn,
+        unit["po_num"],
+        operator_en,
+        shift,
+        remarks,
+    )
     if existing_record:
         return {
             "status": "ok",

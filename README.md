@@ -27,12 +27,15 @@ performance still needs validation against the deployment database. VI5 scanning
 unit data from `dentalmonitoring.mainboard_*` and writes inspection records to
 `dentalmonitoring.mainboard_vi5`.
 
-Before recording VI5, scan the customer SN from `mainboard_lasermarking` and
-`mainboard_labelling`, then scan the unit serial number. The customer SNs must
-match exactly, both station records must map that SN to the scanned serial, and
-the unit must have passed `progtest`, `soldering`, `vi1`, `assembly1`, `vi4`,
-`assembly2` through `assembly6`, `camcalibration`, `lasermarking1`, and
-`labelling` in `dentalmonitoring.mainboard_main`. PASS records are saved to
+Before recording VI5, scan the Data Matrix from `mainboard_lasermarking` and
+`mainboard_labelling`, then scan the unit serial number. The app extracts the
+customer SN from GS1 application identifier `(21)`. The extracted customer SNs
+and the complete Data Matrix values must match exactly; the full value is saved
+in `mainboard_vi5.product_sn`. Both station records must map that SN to the
+scanned serial, and the unit must have passed `progtest`, `soldering`, `vi1`,
+`assembly1`, `vi4`, `assembly2` through `assembly6`, `camcalibration`,
+`lasermarking1`, and `labelling` in `dentalmonitoring.mainboard_main`. PASS
+records are saved to
 `dentalmonitoring.mainboard_vi5`. Failed inspections are recorded with serial
 suffixes `_1` through `_3` and matching `test_rep` values; a fourth FAIL
 attempt is not accepted.
