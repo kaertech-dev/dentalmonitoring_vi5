@@ -1,6 +1,5 @@
 from datetime import datetime
 import re
-
 from app.db import query_one, query_all, get_conn
 
 REQUIRED_STATIONS = (
