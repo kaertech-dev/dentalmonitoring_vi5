@@ -75,13 +75,22 @@ def api_scan():
     data = request.get_json(force=True)
     customer_sn = (data.get("customer_sn") or "").strip()
     serial_num = (data.get("serial_num") or "").strip()
+    laser_product_sn = (data.get("laser_product_sn") or "").strip()
+    labelling_product_sn = (data.get("labelling_product_sn") or "").strip()
 
     if not customer_sn:
         return jsonify({"ok": False, "message": "Customer SN must be verified first."}), 400
     if not serial_num:
         return jsonify({"ok": False, "message": "Serial number is required."}), 400
+    if not laser_product_sn or not labelling_product_sn:
+        return jsonify({"ok": False, "message": "Both Data Matrix scans are required."}), 400
 
-    result = validate_scan(customer_sn, serial_num)
+    result = validate_scan(
+        customer_sn,
+        serial_num,
+        laser_product_sn,
+        labelling_product_sn,
+    )
     ok = result["status"] == "ok"
     return jsonify({"ok": ok, **result})
 
@@ -95,12 +104,17 @@ def api_scan_decision():
     data = request.get_json(force=True)
     customer_sn = (data.get("customer_sn") or "").strip()
     serial_num = (data.get("serial_num") or "").strip()
+    laser_product_sn = (data.get("laser_product_sn") or "").strip()
+    labelling_product_sn = (data.get("labelling_product_sn") or "").strip()
     decision   = (data.get("decision") or "").strip().lower()
     shift      = (data.get("shift") or "").strip()
     remarks    = (data.get("remarks") or "").strip()
 
-    if not customer_sn or not serial_num:
-        return jsonify({"ok": False, "message": "Customer SN and serial number are required."}), 400
+    if not customer_sn or not serial_num or not laser_product_sn or not labelling_product_sn:
+        return jsonify({
+            "ok": False,
+            "message": "Customer SN, serial number, and both Data Matrix scans are required.",
+        }), 400
     if decision not in ("pass", "fail"):
         return jsonify({"ok": False, "message": "Decision must be 'pass' or 'fail'."}), 400
     if decision == "fail" and not remarks:
@@ -109,6 +123,8 @@ def api_scan_decision():
     result = finalize_scan(
         customer_sn=customer_sn,
         serial_num=serial_num,
+        laser_product_sn=laser_product_sn,
+        labelling_product_sn=labelling_product_sn,
         operator_en=session["operator_en"],
         shift=shift,
         decision=decision,
