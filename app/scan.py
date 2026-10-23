@@ -452,7 +452,6 @@ def finalize_scan(
         unit["po_num"],
         operator_en,
         shift,
-        remarks,
     )
     if existing_record:
         return {
