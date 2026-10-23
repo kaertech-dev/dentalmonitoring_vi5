@@ -67,7 +67,7 @@ def verify_customer_sn_matches_serial(customer_sn: str, serial_num: str) -> bool
         if (
             row is None
             or row["customer_sn"] != customer_sn
-            or row["serial_num"] != serial_num
+            or row["serial_num"].casefold() != serial_num.casefold()
         ):
             return False
     return True
@@ -75,7 +75,7 @@ def verify_customer_sn_matches_serial(customer_sn: str, serial_num: str) -> bool
 def already_vi5(serial_num: str) -> dict | None:
     return query_one(
         """
-        SELECT serial_num, po_num, operator_en, shift, date_time, remarks, status
+        SELECT serial_num, po_num, operator_en, shift, date_time, status
         FROM dentalmonitoring.mainboard_vi5
         WHERE serial_num = %s AND status = 1
         LIMIT 1
@@ -131,7 +131,6 @@ def record_vi5(
     po_num: str,
     operator_en: str,
     shift: str,
-    remarks: str = "",
 ) -> dict | None:
     """
     Atomically:
@@ -154,7 +153,7 @@ def record_vi5(
         )
         cur.execute(
             """
-            SELECT serial_num, po_num, operator_en, shift, date_time, test_rep, remarks, status
+            SELECT serial_num, po_num, operator_en, shift, date_time, test_rep, status
             FROM dentalmonitoring.mainboard_vi5
             WHERE serial_num = %s AND status = 1
             LIMIT 1
@@ -180,9 +179,9 @@ def record_vi5(
             """
             INSERT INTO dentalmonitoring.mainboard_vi5
                 (serial_num, product_sn, po_num, operator_en, shift, date_time, test_rep, remarks, status)
-            VALUES (%s, %s, %s, %s, %s, %s, 1, %s, 1)
+            VALUES (%s, %s, %s, %s, %s, %s, 1, "", 1)
             """,
-            (serial_num, product_sn, po_num, operator_en, shift, datetime.now(), remarks)
+            (serial_num, product_sn, po_num, operator_en, shift, datetime.now())
         )
 
         conn.commit()
@@ -453,7 +452,6 @@ def finalize_scan(
         unit["po_num"],
         operator_en,
         shift,
-        remarks,
     )
     if existing_record:
         return {
