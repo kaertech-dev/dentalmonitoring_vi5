@@ -267,7 +267,7 @@
         scanLabelling.focus();
         return;
       }
-      if (data.ok && data.serial_num !== laserCustomerSerial) {
+      if (data.ok && data.serial_num.toLowerCase() !== laserCustomerSerial.toLowerCase()) {
         showMsg(msgLabelling, "The laser-marking and labelling customer SNs link to different serial numbers.", "error");
         scanLabelling.value = "";
         scanLabelling.focus();
