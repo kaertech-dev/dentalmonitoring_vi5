@@ -220,6 +220,11 @@
     return res.json();
   }
 
+  function extractLotNumber(scanValue) {
+    const match = scanValue.match(/\(10\)([^()\x1d]*)/);
+    return match ? match[1].trim() : null;
+  }
+
   async function doCheckLaser() {
     const customerSn = scanLaser.value.trim();
     if (!customerSn) { showMsg(msgLaser, "Please scan the laser-marking customer SN.", "error"); return; }
@@ -261,8 +266,8 @@
         scanLabelling.focus();
         return;
       }
-      if (data.ok && data.product_sn !== verifiedLaserProductSn) {
-        showMsg(msgLabelling, "The complete labelling Data Matrix does not match the laser-marking Data Matrix.", "error");
+      if (data.ok && extractLotNumber(data.product_sn) !== extractLotNumber(verifiedLaserProductSn)) {
+        showMsg(msgLabelling, "The laser-marking and labelling AI (10) lot numbers do not match.", "error");
         scanLabelling.value = "";
         scanLabelling.focus();
         return;

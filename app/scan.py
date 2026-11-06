@@ -23,6 +23,7 @@ CUSTOMER_SN_STATIONS = {
     "labelling": "dentalmonitoring.mainboard_labelling",
 }
 CUSTOMER_SN_PATTERN = re.compile(r"\(21\)([^()\x1d]*)")
+LOT_NUMBER_PATTERN = re.compile(r"\(10\)([^()\x1d]*)")
 
 def extract_customer_sn(scan_value: str) -> str | None:
     """Extract the customer serial from GS1 application identifier 21."""
@@ -31,6 +32,14 @@ def extract_customer_sn(scan_value: str) -> str | None:
         return None
     customer_sn = match.group(1).strip()
     return customer_sn or None
+
+def extract_lot_number(scan_value: str) -> str | None:
+    """Extract the lot number from GS1 application identifier 10."""
+    match = LOT_NUMBER_PATTERN.search(scan_value)
+    if match is None:
+        return None
+    lot_number = match.group(1).strip()
+    return lot_number or None
 
 def lookup_unit(serial_num: str):
     """Check b2btag_main for the serial and its station statuses."""
@@ -322,13 +331,17 @@ def validate_scan(
             "unit": None,
         }
 
+    laser_customer_sn = extract_customer_sn(laser_product_sn)
     if (
-        laser_product_sn != labelling_product_sn
-        or extract_customer_sn(laser_product_sn) != customer_sn
+        extract_lot_number(laser_product_sn) is None
+        or extract_lot_number(laser_product_sn)
+        != extract_lot_number(labelling_product_sn)
+        or laser_customer_sn != extract_customer_sn(labelling_product_sn)
+        or laser_customer_sn != customer_sn
     ):
         return {
             "status": "mismatch",
-            "message": "The complete laser-marking and labelling Data Matrix values must match.",
+            "message": "The laser-marking and labelling AI (10) and AI (21) values must match.",
             "unit": None,
         }
 
